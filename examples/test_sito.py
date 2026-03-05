@@ -11,8 +11,8 @@ bitrate = 1000000
 
 
 motors = {
-    "left_wrist_roll": Motor(id=0x16, model="TA40"),
-    "left_wrist_pitch": Motor(id=0x17, model="TA40"),
+    "left_wrist_roll": Motor(id=0x16, model="TA40-50"),
+    "left_wrist_pitch": Motor(id=0x17, model="TA40-50"),
 }
 
 
