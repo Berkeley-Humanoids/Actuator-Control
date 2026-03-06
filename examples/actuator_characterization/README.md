@@ -1,128 +1,67 @@
-# Actuator Characterization Test Plan (Torque Stand) — Updated
+# Actuator Characterization Test
 
-## Fixed experiment choices
-- **Position-command max amplitude:** ±3.14 rad
-- **Amplitude set (percent of max):** [10%, 25%, 50%, 100%]
-  - 10% → ±0.314 rad
-  - 25% → ±0.785 rad
-  - 50% → ±1.570 rad
-  - 100% → ±3.140 rad
-- **Frequency set:** [0.25, 0.5, 1.0, 2.0] Hz
-- **Per-test duration:** 8 s (active excitation)
+This example shows the procedure to profile an actuator with a torque test stand.
 
----
+In the characterization test, the actuator under test is commanded with a test signal to move to target positions. The actual position and velocity are measured. Commands are transmitted at **sampling frequency**, while the actual command values are generated at **policy frequency** to simulate an RL policy output.
 
-## Goal
-Collect data to fit:
-- **ActuatorNet-style supervised model:** map command/state history → real output torque
-- **UAN-style simulator correction model:** map history → corrective torque / improved transitions for sim2real
+## Usage
 
----
+1. **Generate test signal**:
 
-## Hardware setup
-- Actuator drives controllable brake (constant-load setpoints per block)
-- Shaft torque sensor (ground-truth torque)
-- Encoders for angle/velocity (motor-side and/or output-side)
+   ```bash
+   python generate_test_signal.py --config ERobCfg -o data/test_signal.npz [--save-plot] [--show]
+   ```
 
----
+2. **Run characterization** on hardware (CAN channel, motor ID, etc. are set in the script):
 
-## Signals to command and log
-**Logging:** ≥1 kHz preferred (≥500 Hz acceptable). Timestamp everything; ensure synchronization.
+   ```bash
+   python run_erob_characterization.py --signal data/test_signal.npz -o data/characterization_data.npz
+   ```
 
-### Commanded
-- `u_mode` (position / torque / current / impedance)
-- **Position tests:** `q_cmd(t)` (rad)
-- If impedance: `kp_cmd`, `kd_cmd`
-- Brake: `τ_brake_cmd` (Nm) and (if available) `τ_brake_meas`
+3. **Plot results**:
 
-### Measured
-- `θ_m`, `ω_m` (motor angle/velocity)
-- `θ_out`, `ω_out` (output angle/velocity) if available
-- `τ_meas` (torque sensor)
-- Strongly recommended: `i_meas`, `V_bus`, temperatures (motor/driver/gearbox/brake)
+   ```bash
+   python plot_data.py data/characterization_data.npz [-o data/characterization_plot.png] [--config 0]
+   ```
 
-### Derived (offline)
-- Position error: `e_t = θ_out,t − q_cmd,t` (or motor-side proxy if needed)
-- History windows for learning (short + longer)
-- Transition tuples: `(s_t, u_t, s_{t+1})` for residual/UAN-style training
+## Experiment parameters
 
----
+Signals are generated across different amplitudes and frequencies. Supported signal types:
 
-## Pre-flight (each session)
-1. Zero torque sensor with motor disabled + brake disengaged.
-2. Verify encoder reference/zero.
-3. Brake check: slow sweep of `τ_brake_cmd` to verify stable behavior.
-4. Log 2–3 min baseline temperatures idle.
+- **Sinusoidal wave** — Identifies frequency response, phase lag, and smooth nonlinearities.
+- **Square wave** — Excites friction, deadzones, backlash/hysteresis, and torque-tracking dynamics.
+- **Chirp** — Linear frequency sweep (e.g. 1–25 Hz) for broadband frequency response and resonance.
+- **Gaussian** — Step-wise constant targets from clipped Gaussian samples; captures nonlinearity under stochastic inputs.
 
----
+The same signal is run for each **hardware config**: different combinations of joint stiffness (`joint_kp`), joint damping (`joint_kd`), and external torque load (`brake_torque`).
 
-## Safety / limits
-- Enforce conservative bounds: `|q_cmd| ≤ 3.14 rad`, plus actuator current/torque and speed limits.
-- E-stop if: torque sensor saturates, strong oscillation, overheating, or brake slip.
 
----
+## Data formats
 
-## Load conditions (brake levels)
-Choose 5–8 constant levels spanning:
-- ~0 (near free)
-- light (10–20% rated)
-- medium (40–60%)
-- heavy (80–100%, use short runs if needed)
+### Signal data (from `generate_test_signal.py`)
 
-Hold brake torque constant during each excitation grid.
+Saved as a single NPZ (e.g. `data/test_signal.npz`):
 
----
+| Key | Description |
+|-----|-------------|
+| `times` | `(N,)` float32 — Time in seconds at sampling rate. |
+| `signal` | `(N,)` float32 — Position command (rad) at sampling rate. |
+| `commands` | `(M,)` float32 — Position commands at policy (command) rate; `M = N / (sampling_frequency / policy_frequency)`. |
+| `steps` | `(M,)` int64 — Sampling-step indices; `signal[steps] == commands`. |
+| `policy_frequency` | float — Command update rate (Hz). |
+| `sampling_frequency` | float — Actuator communication rate (Hz). |
+| `rest_duration` | float — Rest time (s) between segments. |
+| `hardware_configs` | list of dict — e.g. `joint_kp`, `joint_kd`, `brake_torque` per run. |
+| `signal_configs` | list of dict — Signal-type configs used to build the trajectory. |
 
-## Excitation grid (per brake level)
-For each waveform type you run (square and/or sine), use the same grid:
+### Experiment data (from `run_erob_characterization.py`)
 
-### Grid definition
-- Frequencies: **0.25, 0.5, 1.0, 2.0 Hz**
-- Amplitudes: **±0.314, ±0.785, ±1.570, ±3.140 rad**
-- Duration per (freq, amp): **8 s**
+| Key | Description |
+|-----|-------------|
+| `policy_frequency` | float — From signal NPZ. |
+| `sampling_frequency` | float — From signal NPZ. |
+| `hardware_configs` | list of dict — Same as in signal NPZ. |
+| `signal_configs` | list of dict — Same as in signal NPZ. |
+| `results` | array of object — One dict per hardware config. Each dict contains: `hardware_config`, `kp`, `kd`, `brake_torque`, `times`, `target_positions`, `measured_positions`, `measured_velocities`. |
 
-**Cycles per 8 s**
-- 0.25 Hz: 2 cycles
-- 0.5 Hz: 4 cycles
-- 1.0 Hz: 8 cycles
-- 2.0 Hz: 16 cycles
-
-### Recommended rest between tests
-- 2 s at `q_cmd = 0` (or a safe neutral position) between tests for repeatability.
-
-### Suggested ordering
-- Run low amplitude → high amplitude at a fixed frequency, then increase frequency
-- Run 100% amplitude last; if it induces saturation/hard-stops, keep it only for ≤1 Hz or treat as a separate “limit test”
-
----
-
-## Optional: stochastic excitation block (for transition coverage)
-(Recommended if you will do UAN/residual learning)
-
-- Position-command noise / PRBS: sample `q_cmd` from a bounded distribution and hold for `Δt_hold`
-- Use hold times: 5–400 ms (log-spaced subset OK)
-- Clip to ±3.14 rad; optionally low-pass command (5–10 ms) and log both raw+filtered
-
----
-
-## Session sequencing (per brake level)
-1. Warm-up: 30 s small sine (e.g., 10%, 0.5 Hz)
-2. Sine grid (all amps × freqs) — 16 tests × 8 s = 128 s active
-3. Square grid (optional, same grid) — +128 s active
-4. Stochastic block (optional) — 1–5 min
-5. Cool-down: 60 s at `q_cmd=0` (keep logging)
-
-With 2 s rest between the 16 tests:
-- 16 × (8 + 2) = 160 s per waveform per brake level
-
----
-
-## Data packaging (deliverables)
-- Time-synced logs (CSV/Parquet/HDF5):
-  - `t, q_cmd, θ_out, ω_out, τ_meas, τ_brake_cmd, temps, V_bus, i_meas, ...`
-- Run metadata:
-  - brake level, waveform type, frequency, amplitude, PD gains (if any), filters used
-- Quality plots:
-  - tracking (q_cmd vs θ_out), torque response (τ_meas), drift vs temperature
-- Train/val/test split:
-  - hold out at least one brake level (and optionally one waveform type) as test
+Plotting scripts expect `times` / `target_positions` / `measured_positions` / `measured_velocities` per result.
