@@ -1,13 +1,5 @@
 """
 Run characterization test signal on ERob actuator and log measurements.
-
-Loads a pre-generated test signal (NPZ from generate_test_signal.py), sends
-position commands at the signal's sampling frequency, and records time, commanded
-position, and measured position/velocity. Iterates through all hardware_configs
-from the signal; each run is saved as one entry in a list of results (one per config).
-Output NPZ: policy_frequency, sampling_frequency, hardware_configs, signal_configs,
-and results (list of dicts with times, target_positions, measured_positions,
-measured_velocities, kp, kd, brake_torque, hardware_config per run).
 """
 
 import argparse
