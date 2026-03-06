@@ -28,7 +28,7 @@ for name, motor in motors.items():
     bus.enable(name)
 
 
-bus.write_mit_kp_kd("left_wrist_yaw", kp=0.1, kd=1.0)
+bus.write_mit_kp_kd("left_wrist_yaw", kp=10.0, kd=1.0)
 
 try:
     while True:

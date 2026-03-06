@@ -1,0 +1,160 @@
+"""
+Run characterization test signal on ERob actuator and log measurements.
+
+Loads a pre-generated test signal (NPZ from generate_test_signal.py), sends
+position commands at the signal's sampling frequency, and records time, commanded
+position, and measured position/velocity. Iterates through all hardware_configs
+from the signal; each run is saved as one entry in a list of results (one per config).
+Output NPZ: policy_frequency, sampling_frequency, hardware_configs, signal_configs,
+and results (list of dicts with times, target_positions, measured_positions,
+measured_velocities, kp, kd, brake_torque, hardware_config per run).
+"""
+
+import argparse
+import time
+from pathlib import Path
+
+import numpy as np
+from loop_rate_limiters import RateLimiter
+import tqdm
+
+from actuator_control.erob import ERobBus
+from actuator_control.common import Motor
+
+channel = "can0"
+bitrate = 1_000_000
+
+motors = {
+    "actuator": Motor(id=15, model="eRob70"),
+}
+
+
+def set_brake_torque(torque_nm: float) -> None:
+    """Set brake torque (Nm). No-op here: brake is assumed to be external hardware; torque is stored in logs for metadata."""
+    # TODO: implement torque control of the electric brake on the torque test stand
+    pass
+
+
+def run_test(
+    bus: ERobBus,
+    signal_data: np.ndarray,
+    hardware_config: dict,
+    rate: RateLimiter,
+) -> dict:
+    """Run the full signal once with the given hardware config. Returns a result dict."""
+    kp = hardware_config["joint_kp"]
+    kd = hardware_config["joint_kd"]
+    brake_torque = hardware_config["brake_torque"]
+
+    for name in motors:
+        bus.write_mit_kp_kd(name, kp, kd)
+
+    set_brake_torque(brake_torque)
+
+    num_samples = len(signal_data)
+    times = np.zeros(num_samples, dtype=np.float64)
+    target_positions = np.zeros(num_samples, dtype=np.float32)
+    measured_positions = np.zeros(num_samples, dtype=np.float32)
+    measured_velocities = np.zeros(num_samples, dtype=np.float32)
+
+    start_time = time.perf_counter()
+    for i in tqdm.trange(num_samples):
+        target_position = float(signal_data[i])
+        for name in motors:
+            bus.write_mit_control(motor=name, position=target_position)
+            measured_position, measured_velocity = bus.read_mit_state(motor=name)
+
+        times[i] = time.perf_counter() - start_time
+        target_positions[i] = target_position
+        measured_positions[i] = measured_position
+        measured_velocities[i] = measured_velocity
+        rate.sleep()
+
+    # return motor to rest position
+    for name in motors:
+        bus.write_mit_control(motor=name, position=0)
+        measured_position, measured_velocity = bus.read_mit_state(motor=name)
+
+    return {
+        "hardware_config": hardware_config,
+        "kp": kp,
+        "kd": kd,
+        "brake_torque": brake_torque,
+        "times": times,
+        "target_positions": target_positions,
+        "measured_positions": measured_positions,
+        "measured_velocities": measured_velocities,
+    }
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--signal",
+        type=Path,
+        default="./data/test_signal.npz",
+        help="Path to test signal NPZ (from generate_test_signal.py)",
+    )
+    parser.add_argument(
+        "--output", "-o",
+        type=Path,
+        default="./data/characterization_data.npz",
+        help="Path to save logged data (NPZ)",
+    )
+    args = parser.parse_args()
+
+    test_signal = np.load(args.signal, allow_pickle=True)
+    signal_data = np.asarray(test_signal["signal"]).flatten()
+    policy_frequency = float(test_signal["policy_frequency"])
+    sampling_frequency = float(test_signal["sampling_frequency"])
+    hardware_configs = list(test_signal["hardware_configs"]) if "hardware_configs" in test_signal else []
+    signal_configs = list(test_signal["signal_configs"]) if "signal_configs" in test_signal else []
+    test_signal.close()
+
+    bus = ERobBus(channel=channel, motors=motors, bitrate=bitrate)
+    bus.connect()
+
+    for name in motors:
+        bus.enable(name)
+
+    # return motor to rest position
+    for name in motors:
+        bus.write_mit_kp_kd(name, kp=0.0, kd=1.0)
+        bus.write_mit_control(motor=name, position=0)
+        bus.read_mit_state(motor=name)
+
+    results: list[dict] = []
+    num_samples = len(signal_data)
+
+    print(f"Running characterization for {len(hardware_configs)} hardware config(s)")
+    print(f"Signal: {num_samples} steps at {sampling_frequency} Hz (~{num_samples / sampling_frequency:.1f} s)")
+    print(f"Policy (command) frequency: {policy_frequency} Hz")
+    print("Interrupt with Ctrl+C to stop early.")
+
+    rate = RateLimiter(frequency=sampling_frequency)
+
+    try:
+        for index, hardware_config in enumerate(hardware_configs):
+            print(f"\n--- Test bundle ({index + 1}/{len(hardware_configs)}): kp={hardware_config['joint_kp']}, kd={hardware_config['joint_kd']}, brake_torque={hardware_config['brake_torque']} Nm ---")
+
+            result = run_test(bus, signal_data, hardware_config, rate)
+            results.append(result)
+    except KeyboardInterrupt:
+        print("Interrupted by user. Stopping early.")
+
+    print("\nDisabling motors...")
+    for name in motors:
+        bus.disable(name)
+    bus.disconnect()
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        args.output,
+        policy_frequency=policy_frequency,
+        sampling_frequency=sampling_frequency,
+        hardware_configs=hardware_configs,
+        signal_configs=signal_configs,
+        results=np.array(results, dtype=object),
+    )
+    print(f"Saved characterization data to {args.output} ({len(hardware_configs)} x {len(results)} tests)")
+    print("Program terminated.")
