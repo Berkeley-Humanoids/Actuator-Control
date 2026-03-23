@@ -22,6 +22,8 @@ class Motor:
 class ActuatorBus:
     """Base interface implemented by all actuator control backends."""
 
+    _CAN_INTERFACE = "socketcan"
+
     def __init__(
         self,
         channel: str,
@@ -89,7 +91,7 @@ class ActuatorBus:
             )
 
         self.channel_handler = can.interface.Bus(
-            interface="socketcan",
+            interface=self._CAN_INTERFACE,
             channel=self.channel,
             bitrate=self.bitrate,
         )
@@ -112,7 +114,7 @@ class ActuatorBus:
             self.channel_handler.shutdown()
             self.channel_handler = None
 
-        print(f"{self.__class__.__name__} disconnected.")
+        print(f"{self.__class__.__name__}<channel={self.channel!r}> disconnected.")
 
     def _require_connected(self) -> can.BusABC:
         """Return the open CAN bus handle or raise a helpful error."""
