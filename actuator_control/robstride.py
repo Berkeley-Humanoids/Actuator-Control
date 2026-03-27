@@ -77,6 +77,66 @@ class RobstrideBus(ActuatorBus):
             )
         return model
 
+    def connect(self, handshake: bool = True) -> None:
+        """Open the CAN interface and discard any queued startup frames."""
+        super().connect(handshake=handshake)
+        self._drain_rx_buffer(timeout=0.05)
+
+    def _drain_rx_buffer(self, *, timeout: float = 0.0, max_frames: int = 256) -> int:
+        """Drain pending frames that may be left over from actuator startup."""
+        if not self.is_connected:
+            return 0
+
+        bus = self._require_connected()
+        drained = 0
+        deadline = time.monotonic() + max(timeout, 0.0)
+
+        while drained < max_frames:
+            remaining = max(0.0, deadline - time.monotonic())
+            frame = bus.recv(timeout=remaining)
+            if frame is None:
+                break
+            drained += 1
+
+        if drained:
+            print(f"Drained {drained} pending CAN frame(s) from {self.channel}.")
+        return drained
+
+    def _receive_matching_frame(
+        self,
+        predicate,
+        *,
+        timeout: float | None,
+        description: str,
+    ) -> tuple[int, int, int, bytes] | None:
+        """Receive frames until one matches the expected response."""
+        bus = self._require_connected()
+        deadline = None if timeout is None else time.monotonic() + timeout
+
+        while True:
+            remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+            if deadline is not None and remaining == 0.0:
+                return None
+
+            frame = bus.recv(timeout=remaining)
+            if frame is None:
+                print("WARNING: Received no response from the motor")
+                return None
+            if not frame.is_extended_id:
+                continue
+
+            communication_type = (frame.arbitration_id >> 24) & 0x1F
+            extra_data = (frame.arbitration_id >> 8) & 0xFFFF
+            device_id = frame.arbitration_id & 0xFF
+
+            if predicate(communication_type, extra_data, device_id, frame.data):
+                return communication_type, extra_data, device_id, frame.data
+
+            print(
+                f"Ignoring unrelated Robstride frame on {self.channel} while waiting for {description}: "
+                f"comm={communication_type} extra=0x{extra_data:04X} device={device_id} data={frame.data.hex()}"
+            )
+
     def transmit(
         self,
         communication_type: int,
@@ -129,13 +189,23 @@ class RobstrideBus(ActuatorBus):
 
     def receive_status_frame(self, motor: str) -> tuple[float, float, float, float]:
         """Receive, validate, and decode a Robstride status frame."""
-        received_frame = self.receive(timeout=0.1)
+        motor_id = self._require_motor(motor).id
+        received_frame = self._receive_matching_frame(
+            lambda communication_type, extra_data, _device_id, _data: (
+                communication_type in (
+                    CommunicationType.OPERATION_STATUS,
+                    CommunicationType.FAULT_REPORT,
+                )
+                and (extra_data & 0xFF) == motor_id
+            ),
+            timeout=0.1,
+            description=f"status frame for {motor!r}",
+        )
         if received_frame is None:
             raise RuntimeError(f"No response from the motor {motor!r}.")
 
         communication_type, extra_data, _host_id, data = received_frame
         model = self._require_model(motor)
-        motor_id = self._require_motor(motor).id
 
         status_uncalibrated = (extra_data >> 13) & 0x01
         status_stall = (extra_data >> 12) & 0x01
