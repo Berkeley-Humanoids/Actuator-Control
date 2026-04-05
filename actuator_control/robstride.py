@@ -221,7 +221,6 @@ class RobstrideBus(ActuatorBus):
         status_overtemperature = (extra_data >> 10) & 0x01
         status_gate_driver_fault = (extra_data >> 9) & 0x01
         status_undervoltage = (extra_data >> 8) & 0x01
-        device_id = extra_data & 0xFF
         fault_list = []
 
         if status_uncalibrated:
@@ -236,8 +235,6 @@ class RobstrideBus(ActuatorBus):
             fault_list.append("gate driver fault")
         if status_undervoltage:
             fault_list.append("undervoltage")
-        if device_id != motor_id:
-            fault_list.append(f"invalid device ID: got {device_id}, expected {motor_id}")
 
         if communication_type not in (
             CommunicationType.OPERATION_STATUS,
