@@ -222,22 +222,22 @@ class RobstrideBus(ActuatorBus):
         status_gate_driver_fault = (extra_data >> 9) & 0x01
         status_undervoltage = (extra_data >> 8) & 0x01
         device_id = extra_data & 0xFF
-        fault_list = set()
+        fault_list = []
 
         if status_uncalibrated:
-            fault_list.add("uncalibrated")
+            fault_list.append("uncalibrated")
         if status_stall_overload:
-            fault_list.add("stall overload")
+            fault_list.append("stall overload")
         if status_magnetic_encoder_fault:
-            fault_list.add("magnetic encoder fault")
+            fault_list.append("magnetic encoder fault")
         if status_overtemperature:
-            fault_list.add("overtemperature")
+            fault_list.append("overtemperature")
         if status_gate_driver_fault:
-            fault_list.add("gate driver fault")
+            fault_list.append("gate driver fault")
         if status_undervoltage:
-            fault_list.add("undervoltage")
+            fault_list.append("undervoltage")
         if device_id != motor_id:
-            fault_list.add(f"invalid device ID: got {device_id}, expected {motor_id}")
+            fault_list.append(f"invalid device ID: got {device_id}, expected {motor_id}")
 
         if communication_type not in (
             CommunicationType.OPERATION_STATUS,
@@ -256,20 +256,20 @@ class RobstrideBus(ActuatorBus):
             fault_overtemperature = fault_value & 0x01
 
             if fault_overtemperature:
-                fault_list.add("overtemperature")
+                fault_list.append("overtemperature")
             if fault_gate_driver:
-                fault_list.add("gate driver fault")
+                fault_list.append("gate driver fault")
             if fault_undervoltage:
-                fault_list.add("undervoltage")
+                fault_list.append("undervoltage")
             if fault_overvoltage:
-                fault_list.add("overvoltage")
+                fault_list.append("overvoltage")
             if fault_uncalibrated:
-                fault_list.add("uncalibrated")
+                fault_list.append("uncalibrated")
             if fault_stall_overload:
-                fault_list.add("stall overload")
+                fault_list.append("stall overload")
             if warning_overtemperature:
-                fault_list.add("overtemperature warning")
-            self._update_fault_status(motor, list(fault_list))
+                fault_list.append("overtemperature warning")
+            self._update_fault_status(motor, list(dict.fromkeys(fault_list)))
             raise RuntimeError(f"Received fault frame from {motor}: {data!r}")
 
         self._update_fault_status(motor, list(fault_list))
