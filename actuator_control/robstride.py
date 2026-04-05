@@ -219,25 +219,25 @@ class RobstrideBus(ActuatorBus):
         status_stall_overload = (extra_data >> 12) & 0x01
         status_magnetic_encoder_fault = (extra_data >> 11) & 0x01
         status_overtemperature = (extra_data >> 10) & 0x01
-        status_drive_fault = (extra_data >> 9) & 0x01
+        status_gate_driver_fault = (extra_data >> 9) & 0x01
         status_undervoltage = (extra_data >> 8) & 0x01
         device_id = extra_data & 0xFF
-        fault_list: list[str] = []
+        fault_list = set()
 
         if status_uncalibrated:
-            fault_list.append("uncalibrated")
+            fault_list.add("uncalibrated")
         if status_stall_overload:
-            fault_list.append("stall overload fault")
+            fault_list.add("stall overload")
         if status_magnetic_encoder_fault:
-            fault_list.append("magnetic encoder fault")
+            fault_list.add("magnetic encoder fault")
         if status_overtemperature:
-            fault_list.append("overtemperature")
-        if status_drive_fault:
-            fault_list.append("drive fault")
+            fault_list.add("overtemperature")
+        if status_gate_driver_fault:
+            fault_list.add("gate driver fault")
         if status_undervoltage:
-            fault_list.append("undervoltage")
+            fault_list.add("undervoltage")
         if device_id != motor_id:
-            fault_list.append(f"invalid device ID: got {device_id}, expected {motor_id}")
+            fault_list.add(f"invalid device ID: got {device_id}, expected {motor_id}")
 
         if communication_type not in (
             CommunicationType.OPERATION_STATUS,
@@ -247,32 +247,32 @@ class RobstrideBus(ActuatorBus):
 
         if communication_type == CommunicationType.FAULT_REPORT:
             fault_value, warning_value = struct.unpack("<LL", data)
-            warning_motor_overtemperature = warning_value & 0x01
-            fault_i2t_overload = (fault_value >> 14) & 0x01
-            fault_encoder_uncalibrated = (fault_value >> 7) & 0x01
+            warning_overtemperature = warning_value & 0x01
+            fault_stall_overload = (fault_value >> 14) & 0x01
+            fault_uncalibrated = (fault_value >> 7) & 0x01
             fault_overvoltage = (fault_value >> 3) & 0x01
             fault_undervoltage = (fault_value >> 2) & 0x01
-            fault_driver_chip = (fault_value >> 1) & 0x01
-            fault_motor_overtemperature = fault_value & 0x01
+            fault_gate_driver = (fault_value >> 1) & 0x01
+            fault_overtemperature = fault_value & 0x01
 
-            if fault_motor_overtemperature:
-                fault_list.append("motor overtemperature")
-            if fault_driver_chip:
-                fault_list.append("driver chip fault")
+            if fault_overtemperature:
+                fault_list.add("overtemperature")
+            if fault_gate_driver:
+                fault_list.add("gate driver fault")
             if fault_undervoltage:
-                fault_list.append("undervoltage")
+                fault_list.add("undervoltage")
             if fault_overvoltage:
-                fault_list.append("overvoltage")
-            if fault_encoder_uncalibrated:
-                fault_list.append("encoder uncalibrated")
-            if fault_i2t_overload:
-                fault_list.append("i2t overload (locked-rotor protection)")
-            if warning_motor_overtemperature:
-                fault_list.append("overtemperature warning")
-            self._update_fault_status(motor, fault_list)
+                fault_list.add("overvoltage")
+            if fault_uncalibrated:
+                fault_list.add("uncalibrated")
+            if fault_stall_overload:
+                fault_list.add("stall overload")
+            if warning_overtemperature:
+                fault_list.add("overtemperature warning")
+            self._update_fault_status(motor, list(fault_list))
             raise RuntimeError(f"Received fault frame from {motor}: {data!r}")
 
-        self._update_fault_status(motor, fault_list)
+        self._update_fault_status(motor, list(fault_list))
 
         if len(data) != 8:
             raise RuntimeError(f"Invalid Robstride status payload length: {len(data)}.")
