@@ -39,6 +39,8 @@ class RobstrideBus(ActuatorBus):
         self._mit_kp: dict[str, float] = {}
         self._mit_kd: dict[str, float] = {}
 
+        self._fault_status: dict[str, list[str]] = {}
+
     @classmethod
     def scan_channel(
         cls,
@@ -76,6 +78,14 @@ class RobstrideBus(ActuatorBus):
                 f"Supported models: {supported}."
             )
         return model
+
+    def _update_fault_status(self, motor: str, statuses: list[str]) -> None:
+        """Replace the cached non-normal status list for one motor."""
+        unique_statuses = list(dict.fromkeys(statuses))
+        if unique_statuses:
+            self._fault_status[motor] = unique_statuses
+        else:
+            self._fault_status.pop(motor, None)
 
     def connect(self, handshake: bool = True) -> None:
         """Open the CAN interface and discard any queued startup frames."""
@@ -209,24 +219,25 @@ class RobstrideBus(ActuatorBus):
         status_stall_overload = (extra_data >> 12) & 0x01
         status_magnetic_encoder_fault = (extra_data >> 11) & 0x01
         status_overtemperature = (extra_data >> 10) & 0x01
-        status_gate_driver_fault = (extra_data >> 9) & 0x01
+        status_drive_fault = (extra_data >> 9) & 0x01
         status_undervoltage = (extra_data >> 8) & 0x01
         device_id = extra_data & 0xFF
+        fault_list: list[str] = []
 
         if status_uncalibrated:
-            print(f"WARNING: {motor} uncalibrated")
+            fault_list.append("uncalibrated")
         if status_stall_overload:
-            print(f"WARNING: {motor} stall overload fault")
+            fault_list.append("stall overload fault")
         if status_magnetic_encoder_fault:
-            print(f"WARNING: {motor} magnetic encoder fault")
+            fault_list.append("magnetic encoder fault")
         if status_overtemperature:
-            print(f"WARNING: {motor} overtemperature")
-        if status_gate_driver_fault:
-            print(f"WARNING: {motor} gate driver fault")
+            fault_list.append("overtemperature")
+        if status_drive_fault:
+            fault_list.append("drive fault")
         if status_undervoltage:
-            print(f"WARNING: {motor} undervoltage")
+            fault_list.append("undervoltage")
         if device_id != motor_id:
-            print(f"WARNING: Invalid device ID, got {device_id}, expected {motor_id}")
+            fault_list.append(f"invalid device ID: got {device_id}, expected {motor_id}")
 
         if communication_type not in (
             CommunicationType.OPERATION_STATUS,
@@ -238,27 +249,30 @@ class RobstrideBus(ActuatorBus):
             fault_value, warning_value = struct.unpack("<LL", data)
             warning_motor_overtemperature = warning_value & 0x01
             fault_i2t_overload = (fault_value >> 14) & 0x01
-            fault_uncalibrated = (fault_value >> 7) & 0x01
+            fault_encoder_uncalibrated = (fault_value >> 7) & 0x01
             fault_overvoltage = (fault_value >> 3) & 0x01
             fault_undervoltage = (fault_value >> 2) & 0x01
-            fault_gate_driver_fault = (fault_value >> 1) & 0x01
-            fault_overtemperature = fault_value & 0x01
+            fault_driver_chip = (fault_value >> 1) & 0x01
+            fault_motor_overtemperature = fault_value & 0x01
 
-            if fault_overtemperature:
-                print(f"FAULT: {motor} overtemperature")
-            if fault_gate_driver_fault:
-                print(f"FAULT: {motor} gate driver fault")
+            if fault_motor_overtemperature:
+                fault_list.append("motor overtemperature")
+            if fault_driver_chip:
+                fault_list.append("driver chip fault")
             if fault_undervoltage:
-                print(f"FAULT: {motor} undervoltage")
+                fault_list.append("undervoltage")
             if fault_overvoltage:
-                print(f"FAULT: {motor} overvoltage")
-            if fault_uncalibrated:
-                print(f"FAULT: {motor} encoder uncalibrated")
+                fault_list.append("overvoltage")
+            if fault_encoder_uncalibrated:
+                fault_list.append("encoder uncalibrated")
             if fault_i2t_overload:
-                print(f"FAULT: {motor} i2t overload (locked-rotor protection)")
+                fault_list.append("i2t overload (locked-rotor protection)")
             if warning_motor_overtemperature:
-                print(f"WARNING: {motor} overtemperature")
+                fault_list.append("overtemperature warning")
+            self._update_fault_status(motor, fault_list)
             raise RuntimeError(f"Received fault frame from {motor}: {data!r}")
+
+        self._update_fault_status(motor, fault_list)
 
         if len(data) != 8:
             raise RuntimeError(f"Invalid Robstride status payload length: {len(data)}.")
@@ -319,11 +333,14 @@ class RobstrideBus(ActuatorBus):
         self.transmit(CommunicationType.ENABLE, self.host_id, device_id)
         self.receive_status_frame(motor)
 
-    def disable(self, motor: str) -> None:
-        """Disable a Robstride actuator."""
+    def disable(self, motor: str, clear_fault: bool = False) -> None:
+        """Disable a Robstride actuator, optionally clearing cached fault state."""
         device_id = self._require_motor(motor).id
-        self.transmit(CommunicationType.DISABLE, self.host_id, device_id)
+        data = struct.pack("<BBHL", 0x01 if clear_fault else 0x00, 0x00, 0x00, 0x00)
+        self.transmit(CommunicationType.DISABLE, self.host_id, device_id, data)
         self.receive_status_frame(motor)
+        if clear_fault:
+            self.clear_fault_status(motor)
 
     def read(self, motor: str, parameter_type: RobstrideParameter) -> Value:
         """Read a typed Robstride parameter descriptor."""
@@ -455,3 +472,19 @@ class RobstrideBus(ActuatorBus):
         """Read position and velocity from the latest Robstride status frame."""
         position, velocity, _torque, _temperature = self.read_operation_frame(motor)
         return position, velocity
+
+    def read_fault_status(self, motor: str | None = None) -> dict[str, list[str]] | list[str]:
+        """Read cached fault and non-normal status for one motor or the whole bus."""
+        if motor is None:
+            return {name: list(statuses) for name, statuses in self._fault_status.items()}
+        self._require_motor(motor)
+        return list(self._fault_status.get(motor, []))
+
+    def clear_fault_status(self, motor: str | None = None) -> None:
+        """Clear locally cached fault and non-normal status for one motor or the whole bus."""
+        if motor is None:
+            self._fault_status.clear()
+            return
+
+        self._require_motor(motor)
+        self._fault_status.pop(motor, None)
