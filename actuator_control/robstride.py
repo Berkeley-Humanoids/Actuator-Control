@@ -272,7 +272,7 @@ class RobstrideBus(ActuatorBus):
             self._update_fault_status(motor, list(dict.fromkeys(fault_list)))
             raise RuntimeError(f"Received fault frame from {motor}: {data!r}")
 
-        self._update_fault_status(motor, list(fault_list))
+        self._update_fault_status(motor, list(dict.fromkeys(fault_list)))
 
         if len(data) != 8:
             raise RuntimeError(f"Invalid Robstride status payload length: {len(data)}.")
