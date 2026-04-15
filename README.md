@@ -1,20 +1,22 @@
 # Actuator Control
 
-Python SDK package for controlling robotic actuators over the CAN bus.
+Native C++17 SocketCAN core with a thin Python wrapper for controlling eRob, Robstride, and Sito actuators.
 
 ## Installation
+
+The package now builds a private `_actuator_control` extension with `scikit-build-core`, CMake, and `pybind11`.
 
 ```bash
 uv sync
 ```
 
-For the plotting utilities in `examples/actuator_characterization`:
+For the Python examples:
 
 ```bash
 uv sync --extra examples
 ```
 
-## Quick start
+## Quick Start
 
 ```python
 from actuator_control import ERobBus, Motor
@@ -23,68 +25,44 @@ motors = {
     "joint": Motor(id=15, model="eRob70"),
 }
 
-bus = ERobBus(channel="can0", motors=motors, bitrate=1_000_000)
-bus.connect()
-
-try:
+with ERobBus(channel="can0", motors=motors, bitrate=1_000_000) as bus:
     bus.enable("joint")
     bus.write_mit_kp_kd("joint", kp=10.0, kd=1.0)
     bus.write_mit_control("joint", position=0.25)
     position, velocity = bus.read_mit_state("joint")
     print(position, velocity)
-finally:
-    bus.disconnect()
 ```
 
-## Motor configuration
+## API Notes
 
-Motors are declared as a dictionary keyed by your logical motor names:
+- Top-level imports remain stable: `Motor`, `ActuatorBus`, `ERobBus`, `RobstrideBus`, `SitoBus`, `RobstrideCommunicationType`, and `RobstrideParameterType`.
+- `Motor` and `CalibrationEntry` are regular Python dataclasses.
+- The Python layer is intentionally thin: constructors, docstrings, context-manager support, and compatibility re-exports live in Python; transport and protocol logic live in C++.
+- Robstride no longer exposes the legacy `write_operation_frame()` or `read_operation_frame()` methods. Use `write_mit_control()` and `read_mit_state()` instead.
 
-```python
-from actuator_control import Motor
+## SocketCAN
 
-motors = {
-    "left_wrist_roll": Motor(id=0x16, model="TA40-50"),
-    "left_wrist_pitch": Motor(id=0x17, model="TA40-50"),
-}
+The native core talks directly to Linux SocketCAN. Bring the interface up before connecting:
+
+```bash
+sudo ip link set can0 down
+sudo ip link set can0 up type can bitrate 1000000
 ```
 
-Motor IDs must be unique within one bus instance.
+Or use [examples/canup.sh](/home/tk/Downloads/Actuator-Control/examples/canup.sh).
 
-## Calibration
+## Development
 
-Optional calibration is applied in the shared MIT helpers before commands are sent and after state is read:
+Run Python tests:
 
-```python
-calibration = {
-    "left_wrist_roll": {
-        "direction": -1,
-        "homing_offset": 0.15,
-    },
-}
+```bash
+uv run pytest
 ```
 
-- `direction` flips the sign of position, velocity, and torque when set to `-1`.
-- `homing_offset` shifts the raw actuator zero point in radians.
+Run native tests:
 
-The calibration dictionary should contain entries for every motor you want transformed.
-
-## Backend notes
-
-### eRob
-
-- eRob currently exposes MIT-like semantics on top of the actuator's position-mode protocol.
-- `velocity` and `torque` arguments in `write_mit_control()` are accepted for API compatibility, but only position is used by the backend.
-- Controller gains are converted into the vendor-specific position/velocity loop registers.
-
-### Robstride
-
-- Robstride communication is implemented directly in this package using the same private CAN protocol and MIT scaling tables as the public vendor SDK.
-- `write_mit_kp_kd()` caches gains locally because the protocol expects them on every MIT command frame.
-- Additional Robstride-specific protocol constants are exported as `RobstrideCommunicationType` and `RobstrideParameterType`.
-
-### Sito
-
-- Sito starts a background receiver thread after `connect()` and keeps the latest feedback in memory.
-- `read_mit_state()` returns the most recently received state, so it depends on feedback messages arriving from the actuator.
-- `control_frequency` controls both command cadence in examples and requested feedback intervals on the bus.
+```bash
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```

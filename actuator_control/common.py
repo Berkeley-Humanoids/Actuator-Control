@@ -1,194 +1,219 @@
-"""Common abstractions shared by all actuator bus backends."""
+"""Shared Python-facing wrappers and types for native actuator backends."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping
 from dataclasses import dataclass
-from functools import cached_property
 from typing import Any, TypeAlias
 
-import can
+from . import _actuator_control as _native
 
 
 Value: TypeAlias = int | float
-Calibration: TypeAlias = dict[str, dict[str, Any]]
+Calibration: TypeAlias = dict[str, "CalibrationEntry"]
 
 
-@dataclass
+@dataclass(slots=True)
 class Motor:
-    """Metadata needed to address a motor on a CAN bus."""
+    """Metadata used to address a motor on a CAN bus."""
 
     id: int
     model: str
 
 
-class ActuatorBus:
-    """Base interface implemented by all actuator control backends."""
+@dataclass(slots=True)
+class CalibrationEntry:
+    """Per-motor calibration used by MIT-style commands and state reads."""
 
-    _CAN_INTERFACE = "socketcan"
+    direction: int
+    homing_offset: float
+
+
+def _coerce_motor(value: Any) -> Motor:
+    if isinstance(value, Motor):
+        return value
+    if isinstance(value, _native.Motor):
+        return Motor(id=value.id, model=value.model)
+    if hasattr(value, "id") and hasattr(value, "model"):
+        return Motor(id=int(value.id), model=str(value.model))
+    raise TypeError("Motor values must provide 'id' and 'model'.")
+
+
+def _coerce_calibration_entry(value: Any) -> CalibrationEntry:
+    if isinstance(value, CalibrationEntry):
+        return value
+    if isinstance(value, _native.CalibrationEntry):
+        return CalibrationEntry(direction=value.direction, homing_offset=value.homing_offset)
+    if isinstance(value, Mapping):
+        if "direction" not in value or "homing_offset" not in value:
+            raise TypeError(
+                "Calibration dict entries must include 'direction' and 'homing_offset'."
+            )
+        return CalibrationEntry(
+            direction=int(value["direction"]),
+            homing_offset=float(value["homing_offset"]),
+        )
+    if hasattr(value, "direction") and hasattr(value, "homing_offset"):
+        return CalibrationEntry(
+            direction=int(value.direction),
+            homing_offset=float(value.homing_offset),
+        )
+    raise TypeError(
+        "Calibration values must be CalibrationEntry objects or mappings "
+        "with 'direction' and 'homing_offset'."
+    )
+
+
+def _normalize_motors(motors: Mapping[str, Any]) -> dict[str, Motor]:
+    normalized = {str(name): _coerce_motor(value) for name, value in motors.items()}
+    motor_ids = [motor.id for motor in normalized.values()]
+    if len(motor_ids) != len(set(motor_ids)):
+        raise ValueError("Motor IDs must be unique within an actuator bus.")
+    return normalized
+
+
+def _normalize_calibration(calibration: Mapping[str, Any] | None) -> Calibration | None:
+    if calibration is None:
+        return None
+    if not isinstance(calibration, Mapping):
+        raise TypeError("calibration must be None or a dict[str, CalibrationEntry-like].")
+    return {
+        str(name): _coerce_calibration_entry(value)
+        for name, value in calibration.items()
+    }
+
+
+def _to_native_motors(motors: Mapping[str, Motor]) -> dict[str, _native.Motor]:
+    return {
+        name: _native.Motor(motor.id, motor.model)
+        for name, motor in motors.items()
+    }
+
+
+def _to_native_calibration(
+    calibration: Mapping[str, CalibrationEntry] | None,
+) -> dict[str, _native.CalibrationEntry] | None:
+    if calibration is None:
+        return None
+    return {
+        name: _native.CalibrationEntry(entry.direction, entry.homing_offset)
+        for name, entry in calibration.items()
+    }
+
+
+class ActuatorBus:
+    """Python-friendly base wrapper over the private native actuator bus."""
+
+    _native_cls = _native.ActuatorBus
 
     def __init__(
         self,
         channel: str,
-        motors: dict[str, Motor],
-        calibration: Calibration | None = None,
-        bitrate: int = 1000000,
+        motors: Mapping[str, Any],
+        calibration: Mapping[str, Any] | None = None,
+        bitrate: int = 1_000_000,
+        **native_kwargs: Any,
     ) -> None:
         self.channel = channel
-        self.motors = motors
-        self.calibration = calibration
+        self._motors = _normalize_motors(motors)
+        self._calibration = _normalize_calibration(calibration)
         self.bitrate = bitrate
+        self._native = self._build_native(native_kwargs)
 
-        motor_ids = [motor.id for motor in motors.values()]
-        if len(motor_ids) != len(set(motor_ids)):
-            raise ValueError("Motor IDs must be unique within an actuator bus.")
-
-        if self.calibration:
-            print(f"Using calibration: {self.calibration}")
-        else:
-            print("WARNING: No calibration provided")
-
-        self.channel_handler: can.BusABC | None = None
+    def _build_native(self, native_kwargs: dict[str, Any]) -> Any:
+        if self._native_cls is _native.ActuatorBus:
+            raise TypeError("ActuatorBus is an abstract base class and cannot be instantiated.")
+        return self._native_cls(
+            channel=self.channel,
+            motors=_to_native_motors(self._motors),
+            calibration=_to_native_calibration(self._calibration),
+            bitrate=self.bitrate,
+            **native_kwargs,
+        )
 
     def __len__(self) -> int:
-        return len(self.motors)
+        return len(self._motors)
 
     def __repr__(self) -> str:
         return (
             f"{self.__class__.__name__}("
             f"channel={self.channel!r}, "
-            f"motors={self.motors!r}, "
+            f"motors={self._motors!r}, "
             f"bitrate={self.bitrate!r})"
         )
 
-    def __del__(self) -> None:
-        try:
-            if self.is_connected:
-                self.disconnect()
-        except Exception:
-            # Destructors run during interpreter shutdown, where module globals may
-            # already be gone. Cleanup is best-effort only.
-            pass
+    def __enter__(self) -> "ActuatorBus":
+        self.connect()
+        return self
 
-    @cached_property
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+        self.disconnect()
+        return False
+
+    @property
+    def motors(self) -> dict[str, Motor]:
+        return self._motors
+
+    @property
+    def calibration(self) -> Calibration | None:
+        return self._calibration
+
+    @property
     def models(self) -> list[str]:
-        """Sorted-by-insertion motor model names for the configured bus."""
-        return [m.model for m in self.motors.values()]
+        return [motor.model for motor in self._motors.values()]
 
-    @cached_property
+    @property
     def ids(self) -> list[int]:
-        """Sorted-by-insertion motor IDs for the configured bus."""
-        return [m.id for m in self.motors.values()]
+        return [motor.id for motor in self._motors.values()]
 
     @property
     def is_connected(self) -> bool:
-        """bool: `True` if the underlying CAN bus is open."""
-        return self.channel_handler is not None
+        return bool(self._native.is_connected)
 
     def connect(self, handshake: bool = True) -> None:
-        """Open the CAN interface and initialise communication."""
-        if self.is_connected:
-            raise RuntimeError(
-                f"{self.__class__.__name__}('{self.channel}') is already connected. "
-                f"Do not call `{self.__class__.__name__}.connect()` twice."
-            )
-
-        self.channel_handler = can.interface.Bus(
-            interface=self._CAN_INTERFACE,
-            channel=self.channel,
-            bitrate=self.bitrate,
-        )
-        print(f"{self.__class__.__name__} connected.")
+        self._native.connect(handshake=handshake)
 
     def disconnect(self, disable_torque: bool = True) -> None:
-        """Close the CAN interface, optionally disabling torque first."""
-        if not self.is_connected:
-            raise RuntimeError(
-                f"{self.__class__.__name__}('{self.channel}') is not connected. "
-                f"Try running `{self.__class__.__name__}.connect()` first."
-            )
-
-        if disable_torque:
-            for motor in self.motors:
-                self.disable(motor)
-            print("Torque disabled for all motors.")
-
-        if self.channel_handler is not None:
-            self.channel_handler.shutdown()
-            self.channel_handler = None
-
-        print(f"{self.__class__.__name__}<channel={self.channel!r}> disconnected.")
-
-    def _require_connected(self) -> can.BusABC:
-        """Return the open CAN bus handle or raise a helpful error."""
-        if self.channel_handler is None:
-            raise RuntimeError(
-                f"{self.__class__.__name__}('{self.channel}') is not connected. "
-                f"Try running `{self.__class__.__name__}.connect()` first."
-            )
-        return self.channel_handler
-
-    def _require_motor(self, motor: str) -> Motor:
-        """Return motor metadata or raise a helpful error for unknown names."""
-        try:
-            return self.motors[motor]
-        except KeyError as exc:
-            available = ", ".join(self.motors.keys()) or "<none>"
-            raise KeyError(f"Unknown motor {motor!r}. Available motors: {available}.") from exc
+        self._native.disconnect(disable_torque=disable_torque)
 
     def enable(self, motor: str) -> None:
-        """Enable the requested motor."""
-        raise NotImplementedError("Not implemented")
+        self._native.enable(motor)
 
     def disable(self, motor: str) -> None:
-        """Disable the requested motor."""
-        raise NotImplementedError("Not implemented")
+        self._native.disable(motor)
 
-    def read(self, motor: str, parameter: int) -> Value | None:
-        """Read a raw backend-specific parameter."""
-        raise NotImplementedError("Not implemented")
+    def read(self, motor: str, parameter: Any) -> Value | None:
+        raise NotImplementedError("This backend does not expose a generic read() method.")
 
-    def write(self, motor: str, parameter: int, value: Value) -> None:
-        """Write a raw backend-specific parameter."""
-        raise NotImplementedError("Not implemented")
+    def write(self, motor: str, parameter: Any, value: Value) -> None:
+        raise NotImplementedError("This backend does not expose a generic write() method.")
 
     def write_mit_kp_kd(self, motor: str, kp: float, kd: float) -> None:
-        """Configure MIT-style proportional and derivative gains for a motor."""
-        raise NotImplementedError("Not implemented")
-
-    def _process_mit_control(
-        self,
-        motor: str,
-        position: float,
-        velocity: float,
-        torque: float,
-    ) -> tuple[float, float, float]:
-        """Map user-space MIT commands into the calibrated motor frame."""
-        if self.calibration:
-            # convert to raw motor frame
-            calibration = self.calibration[motor]
-            position = position * calibration["direction"] + calibration["homing_offset"]
-            velocity = velocity * calibration["direction"]
-            torque = torque * calibration["direction"]
-
-        return position, velocity, torque
-
-    def _process_mit_state(self, motor: str, position: float, velocity: float) -> tuple[float, float]:
-        """Map calibrated motor-state values back into the user frame."""
-        if self.calibration:
-            calibration = self.calibration[motor]
-            position = (position - calibration["homing_offset"]) * calibration["direction"]
-            velocity = velocity * calibration["direction"]
-
-        return position, velocity
+        self._native.write_mit_kp_kd(motor, kp, kd)
 
     def write_mit_control(
         self,
         motor: str,
         position: float,
-        velocity: float = 0,
-        torque: float = 0,
+        velocity: float = 0.0,
+        torque: float = 0.0,
     ) -> None:
-        """Send an MIT-style control command to a motor."""
-        raise NotImplementedError("Not implemented")
+        self._native.write_mit_control(
+            motor=motor,
+            position=position,
+            velocity=velocity,
+            torque=torque,
+        )
 
     def read_mit_state(self, motor: str) -> tuple[float, float]:
-        """Read measured position and velocity for a motor."""
-        raise NotImplementedError("Not implemented")
+        position, velocity = self._native.read_mit_state(motor)
+        return float(position), float(velocity)
+
+
+__all__ = [
+    "ActuatorBus",
+    "Calibration",
+    "CalibrationEntry",
+    "Motor",
+    "Value",
+]

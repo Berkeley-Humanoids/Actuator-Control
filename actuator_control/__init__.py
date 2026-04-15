@@ -1,18 +1,23 @@
-"""Unified Python interface for several CAN-connected actuator families."""
+"""Unified Python interface for CAN actuator backends."""
 
-from .common import ActuatorBus, Motor
+from .common import ActuatorBus, CalibrationEntry, Motor
 from .erob import ERobBus
-from .robstride import RobstrideBus
-from .robstride_protocol import CommunicationType as RobstrideCommunicationType
-from .robstride_protocol import ParameterType as RobstrideParameterType
+from .robstride import (
+    RobstrideBus,
+    RobstrideCommunicationType,
+    RobstrideParameter,
+    RobstrideParameterType,
+)
 from .sito import SitoBus
 
 __all__ = [
     "ActuatorBus",
+    "CalibrationEntry",
     "Motor",
     "ERobBus",
     "RobstrideBus",
     "RobstrideCommunicationType",
+    "RobstrideParameter",
     "RobstrideParameterType",
     "SitoBus",
 ]

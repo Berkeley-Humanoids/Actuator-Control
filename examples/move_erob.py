@@ -31,8 +31,7 @@ bus.write_mit_kp_kd("left_wrist_yaw", kp=10.0, kd=1.0)
 
 try:
     while True:
-        # target_position_1 = np.sin(2 * np.pi * 1 * time.time()) * 0.2
-        target_position_1 = 0
+        target_position_1 = np.sin(2 * np.pi * 1 * time.time()) * 0.2
         bus.write_mit_control(motor="left_wrist_yaw", position=target_position_1)
 
         position_0, velocity_0 = bus.read_mit_state(motor="left_wrist_yaw")

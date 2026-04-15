@@ -1,0 +1,7 @@
+add_executable(test_actuator_bus test_actuator_bus.cpp)
+target_link_libraries(test_actuator_bus PRIVATE actuator_control_native)
+add_test(NAME test_actuator_bus COMMAND test_actuator_bus)
+
+add_executable(test_robstride_tables test_robstride_tables.cpp)
+target_link_libraries(test_robstride_tables PRIVATE actuator_control_native)
+add_test(NAME test_robstride_tables COMMAND test_robstride_tables)

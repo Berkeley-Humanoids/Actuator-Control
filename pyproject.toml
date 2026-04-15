@@ -1,25 +1,27 @@
 [build-system]
-requires = ["hatchling >= 1.26"]
-build-backend = "hatchling.build"
+requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "actuator-control"
-version = "0.2.0"
+version = "1.0.0"
 description = "Unified CAN actuator control helpers for eRob, Robstride, and Sito motors."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = [
-    "deepdiff",
-    "loop-rate-limiters",
-    "numpy",
-    "python-can",
-    "tqdm",
-]
 
 [project.optional-dependencies]
 examples = [
+    "loop-rate-limiters",
     "matplotlib",
+    "numpy",
+    "tqdm",
 ]
 
-[tool.hatchling.build.targets.wheel]
-packages = ["actuator_control"]
+[tool.scikit-build]
+cmake.args = ["-DBUILD_TESTING=OFF"]
+wheel.packages = ["actuator_control"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
