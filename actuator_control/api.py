@@ -86,8 +86,10 @@ class BusBase:
         Args:
             disable_torque: Whether to issue per-actuator disable commands before closing.
         """
-        self._core.disconnect(disable_torque=disable_torque)
-        self._is_connected = False
+        try:
+            self._core.disconnect(disable_torque=disable_torque)
+        finally:
+            self._is_connected = False
 
     def enable(self, actuator: str) -> None:
         """Enable the specified actuator."""
