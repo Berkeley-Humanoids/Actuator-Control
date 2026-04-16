@@ -26,7 +26,7 @@ class SitoBus(BusBase):
 
         Args:
             channel: CAN interface name, e.g. `can0`.
-            actuators: Actuators keyed by logical actuator name.
+            actuators: Actuators keyed by actuator name.
             calibration: Optional per-actuator calibration overrides.
             bitrate: CAN bitrate in bits per second.
             control_frequency: Requested control loop frequency in hertz.
