@@ -137,11 +137,6 @@ impl PyErobBus {
             .map_err(map_error)
     }
 
-    /// Trigger an asynchronous state refresh.
-    fn request_state(&self, actuator: &str) -> PyResult<()> {
-        self.inner.request_state(actuator).map_err(map_error)
-    }
-
     /// Return the last cached actuator state tuple.
     fn read_state(&self, actuator: &str) -> PyResult<Option<(f64, f64, f64, f64, Vec<String>)>> {
         state_to_tuple(self.inner.read_state(actuator))
@@ -262,11 +257,6 @@ impl PyRobstrideBus {
         self.inner
             .write_mit_control(actuator, position, velocity, torque)
             .map_err(map_error)
-    }
-
-    /// Trigger an asynchronous state refresh.
-    fn request_state(&self, actuator: &str) -> PyResult<()> {
-        self.inner.request_state(actuator).map_err(map_error)
     }
 
     /// Return the last cached actuator state tuple.
@@ -405,11 +395,6 @@ impl PySitoBus {
             .map_err(map_error)
     }
 
-    /// Trigger an asynchronous state refresh.
-    fn request_state(&self, actuator: &str) -> PyResult<()> {
-        self.inner.request_state(actuator).map_err(map_error)
-    }
-
     /// Return the last cached actuator state tuple.
     fn read_state(&self, actuator: &str) -> PyResult<Option<(f64, f64, f64, f64, Vec<String>)>> {
         state_to_tuple(self.inner.read_state(actuator))
@@ -536,9 +521,7 @@ fn map_error(error: ActuatorError) -> PyErr {
         error @ ActuatorError::DuplicateActuatorId(_)
         | error @ ActuatorError::InvalidCalibration(_)
         | error @ ActuatorError::UnsupportedModel { .. }
-        | error @ ActuatorError::Protocol(_) => {
-            PyValueError::new_err(error.to_string())
-        }
+        | error @ ActuatorError::Protocol(_) => PyValueError::new_err(error.to_string()),
         ActuatorError::Timeout { .. } => PyTimeoutError::new_err(error.to_string()),
         ActuatorError::AlreadyConnected(_)
         | ActuatorError::NotConnected(_)

@@ -278,13 +278,6 @@ impl RobstrideBus {
         Ok(())
     }
 
-    pub fn request_state(&self, actuator: &str) -> Result<()> {
-        let _ = self.read(actuator, robstride::parameter::MEASURED_POSITION)?;
-        let _ = self.read(actuator, robstride::parameter::MEASURED_VELOCITY)?;
-        let _ = self.read(actuator, robstride::parameter::MEASURED_TORQUE)?;
-        Ok(())
-    }
-
     pub fn write_mit_kp_kd(&self, actuator: &str, kp: f64, kd: f64) -> Result<()> {
         self.require_actuator(actuator)?;
         self.gains
@@ -739,7 +732,8 @@ mod tests {
     #[test]
     fn read_parameter_ignores_frame_for_other_actuator() {
         let (tx, rx) = sync_channel(1);
-        let shared = shared_state_with_pending("knee", 0x01, robstride::parameter::MEASURED_POSITION, tx);
+        let shared =
+            shared_state_with_pending("knee", 0x01, robstride::parameter::MEASURED_POSITION, tx);
 
         handle_read_parameter(
             &shared,
@@ -747,39 +741,34 @@ mod tests {
                 communication_type: CommunicationType::ReadParameter,
                 extra_data: 0x02,
                 device_id: 0xFF,
-                data: [
-                    0x16,
-                    0x30,
-                    0x00,
-                    0x00,
-                    0x00,
-                    0x00,
-                    0x80,
-                    0x3F,
-                ]
-                .to_vec(),
+                data: [0x16, 0x30, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F].to_vec(),
             },
         );
 
-        assert!(shared
-            .pending_reads
-            .lock()
-            .expect("pending poisoned")
-            .is_some());
+        assert!(
+            shared
+                .pending_reads
+                .lock()
+                .expect("pending poisoned")
+                .is_some()
+        );
         assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)));
-        assert!(!shared
-            .states
-            .read()
-            .expect("states poisoned")
-            .get("knee")
-            .expect("state initialized")
-            .has_feedback);
+        assert!(
+            !shared
+                .states
+                .read()
+                .expect("states poisoned")
+                .get("knee")
+                .expect("state initialized")
+                .has_feedback
+        );
     }
 
     #[test]
     fn read_parameter_ignores_frame_for_other_parameter() {
         let (tx, rx) = sync_channel(1);
-        let shared = shared_state_with_pending("knee", 0x01, robstride::parameter::MEASURED_POSITION, tx);
+        let shared =
+            shared_state_with_pending("knee", 0x01, robstride::parameter::MEASURED_POSITION, tx);
 
         handle_read_parameter(
             &shared,
@@ -787,39 +776,34 @@ mod tests {
                 communication_type: CommunicationType::ReadParameter,
                 extra_data: 0x01,
                 device_id: 0xFF,
-                data: [
-                    0x17,
-                    0x30,
-                    0x00,
-                    0x00,
-                    0x00,
-                    0x00,
-                    0x80,
-                    0x3F,
-                ]
-                .to_vec(),
+                data: [0x17, 0x30, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F].to_vec(),
             },
         );
 
-        assert!(shared
-            .pending_reads
-            .lock()
-            .expect("pending poisoned")
-            .is_some());
+        assert!(
+            shared
+                .pending_reads
+                .lock()
+                .expect("pending poisoned")
+                .is_some()
+        );
         assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)));
-        assert!(!shared
-            .states
-            .read()
-            .expect("states poisoned")
-            .get("knee")
-            .expect("state initialized")
-            .has_feedback);
+        assert!(
+            !shared
+                .states
+                .read()
+                .expect("states poisoned")
+                .get("knee")
+                .expect("state initialized")
+                .has_feedback
+        );
     }
 
     #[test]
     fn read_parameter_fulfills_matching_frame_and_updates_state() {
         let (tx, rx) = sync_channel(1);
-        let shared = shared_state_with_pending("knee", 0x01, robstride::parameter::MEASURED_POSITION, tx);
+        let shared =
+            shared_state_with_pending("knee", 0x01, robstride::parameter::MEASURED_POSITION, tx);
 
         handle_read_parameter(
             &shared,
@@ -827,26 +811,21 @@ mod tests {
                 communication_type: CommunicationType::ReadParameter,
                 extra_data: 0x01,
                 device_id: 0xFF,
-                data: [
-                    0x16,
-                    0x30,
-                    0x00,
-                    0x00,
-                    0x00,
-                    0x00,
-                    0x48,
-                    0x41,
-                ]
-                .to_vec(),
+                data: [0x16, 0x30, 0x00, 0x00, 0x00, 0x00, 0x48, 0x41].to_vec(),
             },
         );
 
-        assert!(shared
-            .pending_reads
-            .lock()
-            .expect("pending poisoned")
-            .is_none());
-        assert_eq!(rx.recv().expect("matching response received"), ParameterValue::Float(12.5));
+        assert!(
+            shared
+                .pending_reads
+                .lock()
+                .expect("pending poisoned")
+                .is_none()
+        );
+        assert_eq!(
+            rx.recv().expect("matching response received"),
+            ParameterValue::Float(12.5)
+        );
         let state = shared
             .states
             .read()

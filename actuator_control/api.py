@@ -126,10 +126,6 @@ class BusBase:
         """
         self._core.write_mit_control(actuator, position, velocity, torque)
 
-    def request_state(self, actuator: str) -> None:
-        """Trigger an asynchronous state refresh for the specified actuator."""
-        self._core.request_state(actuator)
-
     @property
     def tx_counter(self) -> int:
         """Return the number of CAN frames transmitted by the backend."""

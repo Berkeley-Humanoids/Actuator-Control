@@ -226,10 +226,6 @@ impl ErobBus {
         write_payload.extend_from_slice(&target_counts.to_be_bytes());
         self.send_frame(actuator_config.id, &write_payload)?;
         self.send_frame(actuator_config.id, &[0x00, erob::command::START_MOTION])?;
-        Ok(())
-    }
-
-    pub fn request_state(&self, actuator: &str) -> Result<()> {
         let _ = self.read_raw(actuator, erob::parameter::ACTUAL_POSITION, &[])?;
         let _ = self.read_raw(actuator, erob::parameter::ACTUAL_SPEED, &[0x00, 0x01])?;
         Ok(())

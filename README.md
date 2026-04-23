@@ -26,10 +26,10 @@ All three backends now use the same receive architecture:
 2. a dedicated receive thread continuously reads the bus
 3. received frames are dispatched by protocol/message type
 4. the receiver updates the local actuator state buffer
-5. `get_state()` returns the latest cached state
+5. `get_state()` returns the latest cached state reported by the backend
 
-For backends without continuous actuator feedback, call `request_state()`
-before `get_state()` when you need a fresh sample.
+For eRob, `write_mit_control()` refreshes the cached position and velocity
+before returning.
 
 ## Examples
 
@@ -47,7 +47,6 @@ try:
     bus.enable("joint")
     bus.write_mit_kp_kd("joint", kp=10.0, kd=1.0)
     bus.write_mit_control("joint", position=0.25)
-    bus.request_state("joint")
     state = bus.get_state("joint")
     if state is not None:
         print(state.position, state.velocity)
@@ -75,7 +74,7 @@ calibration = {
 ### eRob
 
 - MIT control is still mapped onto the position-mode protocol.
-- `request_state()` performs the explicit register reads needed to refresh
+- `write_mit_control()` performs the explicit register reads needed to refresh
   the local state cache.
 - `write_mit_kp_kd()` converts MIT gains into the actuator position/velocity
   loop registers.
@@ -83,9 +82,11 @@ calibration = {
 ### Robstride
 
 - MIT gains are cached locally and packed into each operation-control frame.
+- Operation-control writes are followed by a device status frame that updates
+  the local state cache.
 
 ### Sito
 
-- the actuator streams feedback continuously after `enable()`.
+- The actuator streams feedback continuously after `enable()`.
 - `with_control_frequency()` sets the requested feedback intervals for the
   feedback-1 and feedback-2 streams.

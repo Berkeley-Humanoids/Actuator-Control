@@ -316,9 +316,12 @@ pub fn decode_parameter_value(parameter: ParameterType, payload: &[u8]) -> Resul
 
 pub fn encode_parameter_value(parameter: ParameterType, value: ParameterValue) -> Result<[u8; 4]> {
     let bytes = match (parameter.data_type, value) {
-        (ParameterDataType::U8, ParameterValue::Integer(value)) => {
-            [u8::try_from(value).map_err(|_| integer_range_error(parameter, value, "u8"))?, 0, 0, 0]
-        }
+        (ParameterDataType::U8, ParameterValue::Integer(value)) => [
+            u8::try_from(value).map_err(|_| integer_range_error(parameter, value, "u8"))?,
+            0,
+            0,
+            0,
+        ],
         (ParameterDataType::I8, ParameterValue::Integer(value)) => {
             let signed =
                 i8::try_from(value).map_err(|_| integer_range_error(parameter, value, "i8"))?;

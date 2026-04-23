@@ -241,11 +241,6 @@ impl SitoBus {
         )
     }
 
-    pub fn request_state(&self, actuator: &str) -> Result<()> {
-        self.require_actuator(actuator)?;
-        Ok(())
-    }
-
     pub fn read_state(&self, actuator: &str) -> Result<Option<ActuatorState>> {
         self.require_actuator(actuator)?;
         Ok(self

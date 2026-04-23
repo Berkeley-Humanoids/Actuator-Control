@@ -53,7 +53,6 @@ def run_test(
         target_position = float(signal_data[i])
         for name in actuators:
             bus.write_mit_control(actuator=name, position=target_position)
-            bus.request_state(actuator=name)
             state = bus.get_state(actuator=name)
             if state is None:
                 raise RuntimeError(f"No cached state available for actuator {name!r}")
@@ -69,12 +68,9 @@ def run_test(
     # return actuator to rest position
     for name in actuators:
         bus.write_mit_control(actuator=name, position=0)
-        bus.request_state(actuator=name)
         state = bus.get_state(actuator=name)
         if state is None:
             raise RuntimeError(f"No cached state available for actuator {name!r}")
-        measured_position = state.position
-        measured_velocity = state.velocity
 
     return {
         "hardware_config": hardware_config,
@@ -123,7 +119,6 @@ if __name__ == "__main__":
         for name in actuators:
             bus.write_mit_kp_kd(name, kp=0.0, kd=1.0)
             bus.write_mit_control(actuator=name, position=0)
-            bus.request_state(actuator=name)
             state = bus.get_state(actuator=name)
             if state is None:
                 raise RuntimeError(f"No cached state available for actuator {name!r}")
