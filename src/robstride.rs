@@ -280,9 +280,9 @@ impl RobstrideBus {
         &self,
         actuator: &str,
         position: f64,
-        velocity: f64,
         kp: f64,
         kd: f64,
+        velocity: f64,
         torque: f64,
     ) -> Result<()> {
         let actuator_config = self.require_actuator(actuator)?;

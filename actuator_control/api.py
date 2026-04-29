@@ -103,22 +103,22 @@ class BusBase:
         self,
         actuator: str,
         position: float,
-        velocity: float,
         kp: float,
         kd: float,
-        torque: float,
+        velocity: float = 0.0,
+        torque: float = 0.0,
     ) -> None:
         """Send one MIT control command.
 
         Args:
             actuator: Actuator name.
             position: Target output position in radians.
-            velocity: Target output velocity in radians per second.
             kp: Proportional gain in MIT units.
             kd: Derivative gain in MIT units.
+            velocity: Target output velocity in radians per second.
             torque: Feedforward output torque in newton-meters.
         """
-        self._core.write_mit_control(actuator, position, velocity, kp, kd, torque)
+        self._core.write_mit_control(actuator, position, kp, kd, velocity, torque)
 
     @property
     def tx_counter(self) -> int:
