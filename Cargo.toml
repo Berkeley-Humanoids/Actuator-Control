@@ -1,6 +1,6 @@
 [package]
 name = "actuator-control"
-version = "0.5.3"
+version = "0.5.4"
 edition = "2024"
 license = "MIT"
 description = "Rust CAN actuator control for eRob, Robstride, and Sito actuators."

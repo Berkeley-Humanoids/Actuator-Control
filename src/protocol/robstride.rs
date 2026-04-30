@@ -89,7 +89,7 @@ pub mod parameter {
     };
     pub const MODE: ParameterType = ParameterType {
         id: 0x7005,
-        data_type: ParameterDataType::I8,
+        data_type: ParameterDataType::U8,
         name: "run_mode",
     };
     pub const IQ_TARGET: ParameterType = ParameterType {
@@ -262,18 +262,21 @@ pub fn mit_limits(model: &str) -> Option<MitLimits> {
         "rs-00" | "rs-01" | "rs-02" | "rs-03" | "rs-04" | "rs-05" | "rs-06" => Some(MitLimits {
             position: 4.0 * std::f64::consts::PI,
             velocity: match model {
-                "rs-00" => 50.0,
+                "rs-00" => 33.0,
                 "rs-01" | "rs-02" => 44.0,
-                "rs-03" => 50.0,
+                "rs-03" => 20.0,
                 "rs-04" => 15.0,
-                "rs-05" => 33.0,
-                "rs-06" => 20.0,
+                "rs-05" | "rs-06" => 50.0,
                 _ => unreachable!(),
             },
             torque: match model {
-                "rs-03" | "rs-06" => 60.0,
+                "rs-00" => 14.0,
+                "rs-01" | "rs-02" => 17.0,
+                "rs-03" => 60.0,
                 "rs-04" => 120.0,
-                _ => 17.0,
+                "rs-05" => 5.5,
+                "rs-06" => 36.0,
+                _ => unreachable!(),
             },
             kp: match model {
                 "rs-03" | "rs-04" | "rs-06" => 5000.0,
